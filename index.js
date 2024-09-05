@@ -13,11 +13,11 @@ const qDisco = {'doCount': true, 'doAge': true, 'doExtent': true};
 
 const extents = {
     'heleNorge': ['Hele Norge', -1026115, 6383184, 1922183, 8040446],
-    'oslo': ['Oslo', 233000, 6630000, 242000, 6640000],          // Example values for Oslo area
-    'østlandet': ['Østlandet', 100000, 6500000, 600000, 6800000],     // Example values for Østlandet
-    'vestlandet': ['Vestlandet', -500000, 6500000, 100000, 6800000],   // Example values for Vestlandet
-    'nord': ['Nord', 600000, 7000000, 1922183, 8040446],         // Example values for Nord
-    'sørlandet': ['Sørlandet', 50000, 6400000, 300000, 6600000]       // Example values for Sørlandet
+    'oslo': ['Oslo', 233000, 6630000, 242000, 6640000],
+    'østlandet': ['Østlandet', 100000, 6500000, 600000, 6800000],
+    'vestlandet': ['Vestlandet', -500000, 6500000, 100000, 6800000],
+    'nord': ['Nord', 600000, 7000000, 1922183, 8040446],
+    'sørlandet': ['Sørlandet', 50000, 6400000, 300000, 6600000]
   };
 
 let apdex = {'enabled': false, 'satisfied': 200, 'tolerating': 800};
@@ -28,10 +28,10 @@ program
 
 program
   .command('discover <url>')
-  .description('Discover services at the specified URL')
-  .option('-t, --token <token>', 'Bearer token for authorization')
-  .option('-f, --fields', 'Output field names')
-  .option('-ms, --ms', 'Output latency in MS and apdex rating')
+  .description('Discover ArcGIS Enterprise (ESRI) services at the specified URL, including feature services and layers')
+  .option('-t, --token <token>', 'Bearer token for authorization - also read through env:TOKEN')
+  .option('-f, --fields', 'Output field names when querying Feature/MapService')
+  .option('-ms, --ms', 'Output latency in MS and Apdex rating based on satisfied <= ' + apdex.satisfied + 'ms')
   .action(async (url, options) => {
 
     const token = options.token || process.env.TOKEN;
