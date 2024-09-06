@@ -29,6 +29,7 @@ Capabilities: Query,Create,Update,Delete,Uploads,Editing
 Fields: 44
 - objectid esriFieldTypeOID
 - id esriFieldTypeString
+...
 ```
 
 ## Generating token (should be updated to the environment variable named TOKEN
