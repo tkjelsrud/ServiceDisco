@@ -175,21 +175,6 @@ yargs(hideBin(process.argv))
                     //console.log(`Count where ${argv.notnull} IS NOT NULL`);
                     queryCount(url, token, `${argv.notnull} IS NOT NULL`);
                 }
-                /*
-                if(qDisco.doExtent) {
-                    await queryExtent(url, extents.heleNorge, token);
-                    await queryExtent(url, extents.oslo, token);
-                    await queryExtent(url, extents.vestlandet, token);
-                    await queryExtent(url, extents.østlandet, token);
-                    await queryExtent(url, extents.sørlandet, token);
-                    await queryExtent(url, extents.nord, token);
-    
-                    await queryBlankShape(url, token);
-                }
-    
-                if(qDisco.doAge)
-                    await timeStampRange(url, response.data.fields, token);
-                */
             }
             else if(response.data.feature && response.data.feature.attributes) {
                 spinner.succeed('Feature discovered');
