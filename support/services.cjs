@@ -136,6 +136,8 @@ class EsriTokenService extends JSONService {
         if(!'token' in response.data) {
             throw new Error(`Expected status 200 but got ${response.status}`);
         }
+
+        //console.log(response.data);
         
         return response.data.token;
     }
