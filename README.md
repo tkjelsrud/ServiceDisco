@@ -14,14 +14,34 @@ eval "$(disco completion)"
 ## Once installed you can do different look ups to both services, folders, layers and directly on features using the syntax
 ```
 disco http://enterprise.host/somepath/
-disco http://enterprise.host/agshost/rest/services
-disco http://enterprise.host/agshost/rest/services/someService/FeatureServer/
 disco http://enterprise.host/agshost/rest/services/someService/FeatureServer/0
-disco http://enterprise.host/agshost/rest/services/someService/FeatureServer/0/1234
 ```
-Token is read from environment variables but can be generated using
+### disco.json - configuration example
+The urls block is used for auto-completion, for now, you can manually populate it with known enpoint or folders
+username and password can be placed in the disco.json for simplifying generating token with --token
+however its considered unsafe, other means of storing credentials should be used
+```
+{
+  "urls": [
+    "https://enterprise.host/agshost/rest/services",
+    "https://enterprise.host/agshost/rest/services/someService/FeatureServer/0",
+  ],
+  "token": {
+    "https://enterprise.host/": {
+      "tokenUrl": "https://enterprise.host/portal/sharing/rest/generateToken",
+      "referer": "https://enterprise.host/",
+      "client": "referer",
+      "f": "json",
+      "username": "USERNAME",
+      "password": "PASSWORD"
+    }
+  },
+  "extents": {
+  }
+}
+```
 
-Example output
+### Example output from running command
 ```
 Discovering services at: https://enterprise.host/arcgis/rest/services/someService/FeatureServer/0
 ✔ Feature Layer discovered
@@ -32,8 +52,27 @@ Fields: 44
 ...
 ```
 
+### Example from running a command directly
+```
+disco enterprise.host/arcgis/rest/services/someService/FeatureServer/queryDomains
+✔ Found JSON response
+{
+  "domains": [
+    {
+      "type": "some type",
+      "name": "some value here",
+      "description": "",
+      "codedValues": [
+        {
+```
+
+
 ## Generating token (should be updated to the environment variable named TOKEN
+If user credentials are present in disco.json or in environment variables
+```
+disco http://enterprise.host/somepath/ --token
+```
+If manually logging on:
 ```
 disco http://enterprise.host/somepath/ --token --credentials username:password
-export TOKEN=blabla
 ```
