@@ -1,4 +1,11 @@
 const axios = require('axios');
+const https = require('https');
+
+const axiosInstance = axios.create({
+    httpsAgent: new https.Agent({  
+      rejectUnauthorized: false  // Disable SSL verification
+    })
+  });
 
 class Service {
     constructor() {
@@ -122,7 +129,7 @@ class EsriTokenService extends JSONService {
             formData.append('referer', refUrl);
             formData.append('f', 'json');
         
-            response = await axios.post(this.tokenUrl, formData.toString(), {
+            response = await axiosInstance.post(this.tokenUrl, formData.toString(), {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 }

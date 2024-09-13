@@ -9,12 +9,19 @@ import { fileURLToPath } from 'url';
 import chalk from 'chalk';
 import ora from 'ora';
 import axios from 'axios';
+import https from 'https';
 
 import {EsriTokenService, EsriService, JSONService} from './support/services.cjs';
 
 const qDisco = {'doCount': true, 'doAge': true, 'doExtent': true, 'lastRows': false};
 
 let apdex = {'enabled': false, 'satisfied': 200, 'tolerating': 800};
+
+const axiosInstance = axios.create({
+    httpsAgent: new https.Agent({  
+      rejectUnauthorized: false  // Disable SSL verification
+    })
+  });
 
 const configPath = path.resolve('disco.json');
 let config = {};
@@ -75,17 +82,30 @@ yargs(hideBin(process.argv))
     (argv) => {
       const url = argv.url;
       if (url) {
-        console.log(`Discovering services at: ${url}`);
-        let token = process.env.TOKEN;
+        let where = "";
+        let token = null;
+        let tokenData = getConfigToken(url);
+
+        if(tokenData && tokenData.token) {
+            token = tokenData.token;
+        }
+        else { 
+            token = process.env.TOKEN;
+        }
+
+        //console.log('Using token:' + token);
         const displayFields = argv.fields;
-    
+
         if(argv.token && !argv.credentials) {
-            console.log(chalk.red('supply --credentials username:password to generate token'));
-            return;
+            // check if username and password is inside config (kind of unsafe)
+            argv.credentials = tokenData.username + ":" + tokenData.password;
+
+            //console.log(chalk.red('supply --credentials username:password to generate token'));
+            //return;
         }
         if(argv.token && argv.credentials) {
             // Generate token
-            console.log('time to gen token');
+            const spinner = ora('Fetching token').start();
 
             const [username, password] = argv.credentials.split(':');
 
@@ -96,10 +116,11 @@ yargs(hideBin(process.argv))
                     let resToken = ts.getToken(username, password, value.referer).then((response) => {
                         token = response;
                         if(!token)
-                            console.log(chalk.red('Failed to generate token'));
-                        else
-                            console.log('Generated TOKEN: ' + token);
-
+                            spinner.fail(chalk.red('Failed to generate token'));
+                        else {
+                            spinner.succeed('Generated TOKEN: ' + token);
+                            writeConfigToken(url, token);
+                        }
                         // Write token to config file
                     });
                 }
@@ -112,9 +133,15 @@ yargs(hideBin(process.argv))
             process.exit(1);
         }
 
+        if(argv.where) {
+            where = '&' + argv.where;
+        }
+
+        console.log(`Discovering services at: ${url}`);
+
         const spinner = ora('Fetching services...').start();
         
-        axios.get(urlWithJsonFormat(url), {
+        axiosInstance.get(urlWithJsonFormat(url) + where, {
             headers: {
                 Authorization: `Bearer ${token}`
             }
@@ -122,14 +149,22 @@ yargs(hideBin(process.argv))
             const services = response.data.services;
             const layers = response.data.layers;
             const type = response.data.type;
+            let didResult = false;
 
             //console.log(response.data);
-
+            if(response.data.folders && response.data.folders.length > 0) {
+                spinner.succeed('Folders discovered');
+                response.data.folders.forEach(folder => {
+                    console.log(`- ${chalk.blue(folder)}`);
+                });
+                didResult = true;
+            }
             if (services && services.length > 0) {
                 spinner.succeed('Services discovered');
                 services.forEach(service => {
                     console.log(`- ${chalk.blue(service.name)} (${service.type})`);
                 });
+                didResult = true;
             }
             else if(layers && layers.length > 0) {
                 spinner.succeed('Layers discovered');
@@ -145,9 +180,6 @@ yargs(hideBin(process.argv))
                         console.log(`- ${table.id} ${chalk.blue(table.name)}`);
                     });
                 }
-    
-                //if(qDisco.doCount)
-                //    await queryCount(url, token);
             }
             else if(type && type == 'Table') {
                 spinner.succeed('Table Layer discovered');
@@ -180,21 +212,21 @@ yargs(hideBin(process.argv))
                 spinner.succeed('Feature discovered');
                 console.log(JSON.stringify(response.data.feature, null, 2));
             }
-            else if(response.data.folders) {
-                spinner.succeed('Folders discovered');
-                response.data.folders.forEach(folder => {
-                    console.log(`- ${chalk.blue(folder)}`);
-                });
-            }
             else if(response.data.error) {
                 spinner.fail(chalk.red('Found error in response: ' + response.data.error.message));
-            } else {
+            }
+            else if(response.data && !didResult) {
+                // Found some other type of JSON service, possibly?
+                spinner.succeed('Found JSON response');
+                console.log(JSON.stringify(response.data, null, 2));
+            }
+            else {
                 spinner.fail(chalk.yellow('No services found.'));
             }
         })
         .catch((error) => {
             spinner.fail('Failed to discover services.');
-            console.error('Error fetching data:', error);
+            console.error('Error fetching data:', error.status, error.code);
         });
 
       } else {
@@ -222,7 +254,7 @@ function queryCount(url, token, where = '1=1') {
 
     const startTime = Date.now();
 
-    const response = axios.get(url, {
+    const response = axiosInstance.get(url, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -245,7 +277,7 @@ function queryLastRows(url, token, fieldList) {
     url = urlWithJsonFormat(appendQueryToUrl(url)) + `&where=1=1&outFields=${fieldList}&orderByFields=${firstField}+DESC&resultRecordCount=10`;
     const startTime = Date.now();
 
-    const response = axios.get(url, {
+    const response = axiosInstance.get(url, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -255,7 +287,13 @@ function queryLastRows(url, token, fieldList) {
             response.data.features.forEach(feature => {
                 let line = "";
                 fieldList.split(',').forEach(field => {
-                    line += '\t' + feature.attributes[field];
+                    let value = feature.attributes[field];
+                    let type = getFieldType(response.data, field);
+
+                    if(type == 'esriFieldTypeDate')
+                        value = (new Date(value)).toLocaleString('no-nb');
+
+                    line += '\t' + value;
                 });
                 console.log(line);
             });
@@ -278,4 +316,40 @@ function appendQueryToUrl(url) {
       url = url.slice(0, -1);
     }
     return `${url}/query`;
-  }
+}
+
+function getConfigToken(url) {
+    let fToken = null;
+
+    Object.entries(config.token).forEach(([key, value]) => {
+        if(url.startsWith(key)) {
+            fToken = config.token[key];
+        }
+    });
+    return fToken;
+}
+
+function getFieldType(jsonData, fieldName) {
+    let type = null;
+
+    if(jsonData.fields) {
+        jsonData.fields.forEach(field => {
+            if(field.name == fieldName) {
+                type = field.type;
+            }
+        });
+    }
+    return type;
+}
+
+function writeConfigToken(url, token) {
+    let configW = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
+    Object.entries(configW.token).forEach(([key, value]) => {
+        if(url.startsWith(key)) {
+            configW.token[key].token = token;
+        }
+    });
+
+    fs.writeFileSync(configPath, JSON.stringify(configW, null, 2));
+}
