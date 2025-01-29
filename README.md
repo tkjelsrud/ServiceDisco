@@ -76,3 +76,27 @@ If manually logging on:
 ```
 disco http://enterprise.host/somepath/ --token --credentials username:password
 ```
+
+## Installation of auto-complete
+disco completion
+```
+#compdef disco
+###-begin-disco-completions-###
+#
+# yargs command completion script
+#
+# Installation: /opt/homebrew/bin/disco completion >> ~/.zshrc
+#    or /opt/homebrew/bin/disco completion >> ~/.zprofile on OSX.
+#
+_disco_yargs_completions()
+{
+  local reply
+  local si=$IFS
+  IFS=$'
+' reply=($(COMP_CWORD="$((CURRENT-1))" COMP_LINE="$BUFFER" COMP_POINT="$CURSOR" /opt/homebrew/bin/disco --get-yargs-completions "${words[@]}"))
+  IFS=$si
+  _describe 'values' reply
+}
+compdef _disco_yargs_completions disco
+###-end-disco-completions-###
+```
