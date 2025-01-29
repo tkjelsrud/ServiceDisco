@@ -128,6 +128,7 @@ class EsriTokenService extends JSONService {
             formData.append('client', 'referer');
             formData.append('referer', refUrl);
             formData.append('f', 'json');
+            //console.log(formData);
         
             response = await axiosInstance.post(this.tokenUrl, formData.toString(), {
                 headers: {
@@ -139,6 +140,9 @@ class EsriTokenService extends JSONService {
         }
         if (response.status !== 200) {
             throw new Error(`Expected status 200 but got ${response.status}`);
+        }
+        if('error' in response.data) {
+            throw new Error(`Found error ${response.data.error.message}: ${response.data.error.details[0]}`);
         }
         if(!'token' in response.data) {
             throw new Error(`Expected status 200 but got ${response.status}`);

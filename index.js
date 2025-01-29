@@ -4,24 +4,22 @@ import fs from 'fs';
 import path from 'path';
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { dirname } from 'path';
-import { fileURLToPath } from 'url';
 import chalk from 'chalk';
 import ora from 'ora';
 import axios from 'axios';
 import https from 'https';
 
 import {EsriTokenService, EsriService, JSONService} from './support/services.cjs';
+import {EsriSchema, EsriQuery}  from './support/queries.mjs';
 
 const qDisco = {'doCount': true, 'doAge': true, 'doExtent': true, 'lastRows': false};
-
 let apdex = {'enabled': false, 'satisfied': 200, 'tolerating': 800};
 
 const axiosInstance = axios.create({
     httpsAgent: new https.Agent({  
       rejectUnauthorized: false  // Disable SSL verification
     })
-  });
+});
 
 const configPath = path.resolve('disco.json');
 let config = {};
@@ -66,6 +64,12 @@ yargs(hideBin(process.argv))
         describe: 'query based on fields spesified and output (last) rows',
         default: false,
       });
+      yargs.option('schema', {
+        alias: 'z',
+        type: 'string',
+        describe: 'generate schema from layer or layers to filename',
+        default: '',
+      });
       yargs.option('token', {
         alias: 'gt',
         type: 'boolean',
@@ -93,15 +97,11 @@ yargs(hideBin(process.argv))
             token = process.env.TOKEN;
         }
 
-        //console.log('Using token:' + token);
         const displayFields = argv.fields;
 
         if(argv.token && !argv.credentials) {
             // check if username and password is inside config (kind of unsafe)
             argv.credentials = tokenData.username + ":" + tokenData.password;
-
-            //console.log(chalk.red('supply --credentials username:password to generate token'));
-            //return;
         }
         if(argv.token && argv.credentials) {
             // Generate token
@@ -112,11 +112,11 @@ yargs(hideBin(process.argv))
             Object.entries(config.token).forEach(([key, value]) => {
                 if(url.startsWith(key)) {
                     let ts = new EsriTokenService(value.tokenUrl);
-
+                    
                     let resToken = ts.getToken(username, password, value.referer).then((response) => {
                         token = response;
                         if(!token)
-                            spinner.fail(chalk.red('Failed to generate token'));
+                            spinner.fail(chalk.red('Failed to generate token:'));
                         else {
                             spinner.succeed('Generated TOKEN: ' + token);
                             writeConfigToken(url, token);
@@ -150,8 +150,7 @@ yargs(hideBin(process.argv))
             const layers = response.data.layers;
             const type = response.data.type;
             let didResult = false;
-
-            //console.log(response.data);
+            
             if(response.data.folders && response.data.folders.length > 0) {
                 spinner.succeed('Folders discovered');
                 response.data.folders.forEach(folder => {
@@ -180,6 +179,32 @@ yargs(hideBin(process.argv))
                         console.log(`- ${table.id} ${chalk.blue(table.name)}`);
                     });
                 }
+
+                if(argv.rows) {
+                    // Try to get rows across all layers
+                    layers.forEach(layer => {
+                        EsriQuery.queryLastRows(url + layer.id, token, argv.rows, 3, `${layer.name} (${layer.id})`);
+                    });
+                }
+
+                if (argv.schema && argv.schema != '') {
+                    let schemas = {};
+                
+                    const generateSchemas = async () => {
+                        for (const layer of layers) {
+                            schemas[layer.id] = {"name": layer.name, "fields": await EsriSchema.getSchema(url, layer.id, token) };
+                        }
+                        
+                        try {
+                            fs.writeFileSync(argv.schema, JSON.stringify(schemas, null, 2), 'utf-8');
+                            console.log(`Schema saved to ${argv.schema}`);
+                        } catch (error) {
+                            console.error(`Error saving schema to file:`, error.message);
+                        }
+                    };
+                
+                    generateSchemas().catch((err) => console.error(`Failed to generate schemas: ${err.message}`));
+                }
             }
             else if(type && type == 'Table') {
                 spinner.succeed('Table Layer discovered');
@@ -198,14 +223,13 @@ yargs(hideBin(process.argv))
                 }
                 
                 if(qDisco.doCount)
-                    queryCount(url, token);
+                    EsriQuery.queryCount(url, token);
 
                 if(argv.rows)
-                    queryLastRows(url, token, argv.rows);
+                    EsriQuery.queryLastRows(url, token, argv.rows, 10);
             
                 if(argv.notnull) {
-                    //console.log(`Count where ${argv.notnull} IS NOT NULL`);
-                    queryCount(url, token, `${argv.notnull} IS NOT NULL`);
+                    EsriQuery.queryCount(url, token, `${argv.notnull} IS NOT NULL`);
                 }
             }
             else if(response.data.feature && response.data.feature.attributes) {
@@ -247,77 +271,6 @@ function urlWithJsonFormat(url) {
     return `${url}${url.includes('?') ? '&' : '?'}f=json`;
 }
 
-function queryCount(url, token, where = '1=1') {
-    const spinner = ora('Counting...').start();
-
-    url = urlWithJsonFormat(appendQueryToUrl(url)) + `&where=${where}&returnCountOnly=true`;
-
-    const startTime = Date.now();
-
-    const response = axiosInstance.get(url, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-    }).then((response) => {
-        const count = response.data.count;
-
-        spinner.succeed('Count: ' + (count > 0 ? chalk.yellow(count) + ' features' : chalk.red('No features')) + ' where ' + where + ' (' + Math.floor(Date.now()-startTime) + 'ms)');
-        //apdexScoring(startTime);
-    }).catch((error) => {
-        spinner.fail('Failed to count features');
-        console.error('Error fetching data:', error);
-    });
-}
-
-function queryLastRows(url, token, fieldList) {
-    const spinner = ora('Last rows...').start();
-
-    let firstField = fieldList.split(',')[0];
-
-    url = urlWithJsonFormat(appendQueryToUrl(url)) + `&where=1=1&outFields=${fieldList}&orderByFields=${firstField}+DESC&resultRecordCount=10`;
-    const startTime = Date.now();
-
-    const response = axiosInstance.get(url, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-    }).then((response) => {
-        if(response.data.features) {
-            spinner.succeed('List features:');
-            response.data.features.forEach(feature => {
-                let line = "";
-                fieldList.split(',').forEach(field => {
-                    let value = feature.attributes[field];
-                    let type = getFieldType(response.data, field);
-
-                    if(type == 'esriFieldTypeDate')
-                        value = (new Date(value)).toLocaleString('no-nb');
-
-                    line += '\t' + value;
-                });
-                console.log(line);
-            });
-        }
-        else {
-            spinner.fail('No last features fetched');
-        }
-
-        //spinner.succeed('Count: ' + (count > 0 ? chalk.yellow(count) + ' features' : chalk.red('No features')));
-        //apdexScoring(startTime);
-    }).catch((error) => {
-        spinner.fail('Failed to fetch last features');
-        console.error('Error fetching data:', error);
-    });
-}
-
-function appendQueryToUrl(url) {
-    // Remove the trailing slash if it exists
-    if (url.endsWith('/')) {
-      url = url.slice(0, -1);
-    }
-    return `${url}/query`;
-}
-
 function getConfigToken(url) {
     let fToken = null;
 
@@ -327,19 +280,6 @@ function getConfigToken(url) {
         }
     });
     return fToken;
-}
-
-function getFieldType(jsonData, fieldName) {
-    let type = null;
-
-    if(jsonData.fields) {
-        jsonData.fields.forEach(field => {
-            if(field.name == fieldName) {
-                type = field.type;
-            }
-        });
-    }
-    return type;
 }
 
 function writeConfigToken(url, token) {
